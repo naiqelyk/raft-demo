@@ -3,6 +3,7 @@ import { record } from "../util/record";
 import { chaosScenario, SCENARIOS } from "../util";
 import type { Scenario } from "../util/sim";
 import { firstElection, minorityNoLeader } from "../util/scenarios/election";
+import { leaderCrash } from "../util/scenarios/failures";
 
 // record() is what the UI plays back, so check it captures what the UI needs.
 describe("record", () => {
@@ -40,6 +41,20 @@ describe("record", () => {
 
     expect(frames.at(-1)!.partition).toEqual([["n1", "n2"], ["n3", "n4", "n5"]]);
     expect(frames.some((f) => f.lost.some((l) => l.reason === "partitioned"))).toBe(true);
+  });
+
+  it("shows an action's effect in the frame of the tick it happened", () => {
+    const { frames, events } = record(leaderCrash);
+    const crash = events.find((e) => e.kind === "action" && e.text.startsWith("crash"))!;
+    const id = crash.text.replace("crash ", "");
+
+    expect(frames[crash.tick]!.nodes.find((n) => n.id === id)!.up).toBe(false);
+  });
+
+  it("records messages that reach a crashed node as lost", () => {
+    const { frames } = record(leaderCrash);
+
+    expect(frames.some((f) => f.lost.some((l) => l.reason === "crashed"))).toBe(true);
   });
 
   it("keeps the frames and reports the error when a script fails", () => {

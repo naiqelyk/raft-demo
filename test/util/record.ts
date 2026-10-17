@@ -53,6 +53,13 @@ export function record(scenario: Scenario): Recording {
       noteStateChanges(sim, frames.at(-1), frame);
       frames.push(frame);
     },
+    // Actions happen between ticks. Re-take the current frame so that frame t
+    // shows the state after tick t's actions, e.g. a node crashed at t is down.
+    afterAction: () => {
+      const previous = frames.pop()!;
+      frames.push(snapshot(sim, [...previous.lost, ...lost]));
+      lost = [];
+    },
   });
   sim.cluster.network.onLost = (msg, reason) => lost.push({ msg, reason });
   frames.push(snapshot(sim, []));

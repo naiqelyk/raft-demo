@@ -16,7 +16,8 @@ export const DEFAULT_NETWORK_OPTIONS: NetworkOptions = {
   dropRate: 0,
 };
 
-export type LossReason = "dropped" | "partitioned";
+/** "crashed" is reported by the Cluster, which drops messages that reach a down node. */
+export type LossReason = "dropped" | "partitioned" | "crashed";
 
 export interface InFlight {
   msg: Message;

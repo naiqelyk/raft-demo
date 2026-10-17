@@ -3,12 +3,11 @@
 An example implementation of the [Raft consensus algorithm](https://raft.github.io/raft.pdf)
 that replicates a key-value store across a cluster of simulated nodes, with tests for different failure modes.
 
-> **Status:** the Raft core is done and tested. The interactive UI (Vite + React) is next.
-
 ```sh
 npm install
 npm test          # run the test suite
 npm run typecheck # type-check without emitting
+npm run dev       # open the timelapse viewer
 ```
 
 ## Design

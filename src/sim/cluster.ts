@@ -47,6 +47,7 @@ export class Cluster {
       // Messages that reach a crashed node are lost.
       const node = this.nodes.get(msg.to);
       if (node && this.isUp(node.id)) this.send(node.receive(msg));
+      else this.network.onLost?.(msg, "crashed");
     }
     for (const node of this.upNodes()) this.send(node.tick());
     this.onStep?.();

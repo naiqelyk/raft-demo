@@ -39,6 +39,8 @@ export interface SimOptions {
   checkInvariants?: boolean;
   /** Called after every tick, after the invariant check. */
   afterStep?: () => void;
+  /** Called after each action (crash, partition, submit, ...), which happen between ticks. */
+  afterAction?: () => void;
 }
 
 export class Sim {
@@ -155,6 +157,7 @@ export class Sim {
   /** Adds an event at the current tick. Scripts use the methods above instead. */
   event(kind: SimEvent["kind"], text: string, passed?: boolean): void {
     this.events.push(passed === undefined ? { tick: this.now, kind, text } : { tick: this.now, kind, text, passed });
+    if (kind === "action") this.options.afterAction?.();
   }
 }
 
