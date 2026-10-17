@@ -1,19 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { NodeId } from "../../src/raft/types";
+import { firstElection, leaderPartitioned, minorityNoLeader } from "../util/scenarios/election";
 import { Cluster } from "../../src/sim/cluster";
+import { runScenario } from "../util/helpers";
 
 describe("Cluster elections", () => {
   it("elects exactly one leader that every node recognises", () => {
-    const cluster = new Cluster({ seed: 1 });
-    cluster.runUntil(() => cluster.leader() !== undefined);
-    cluster.run(10); // let heartbeats reach everyone
-
-    const leader = cluster.leader()!;
-    expect(cluster.leaders()).toHaveLength(1);
-    for (const node of cluster.nodes.values()) {
-      expect(node.currentTerm).toBe(leader.currentTerm);
-      expect(node.leaderId).toBe(leader.id);
-    }
+    runScenario(firstElection);
   });
 
   it("elects a leader across cluster sizes and seeds", () => {
@@ -37,39 +30,11 @@ describe("Cluster elections", () => {
   });
 
   it("re-elects when the leader is partitioned away, and the old leader steps down on heal", () => {
-    const cluster = new Cluster({ size: 5, seed: 3 });
-    cluster.runUntil(() => cluster.leader() !== undefined);
-    const oldLeader = cluster.leader()!;
-    const others = cluster.ids.filter((id) => id !== oldLeader.id);
-
-    cluster.network.partition([[oldLeader.id], others]);
-    cluster.runUntil(() => cluster.leader()?.id !== oldLeader.id);
-    const newLeader = cluster.leader()!;
-
-    expect(newLeader.currentTerm).toBeGreaterThan(oldLeader.currentTerm);
-    // The isolated node has heard nothing, so it still believes it leads.
-    expect(oldLeader.role).toBe("leader");
-
-    cluster.network.heal();
-    cluster.runUntil(() => oldLeader.role === "follower");
-
-    expect(cluster.leaders()).toEqual([newLeader]);
-    expect(oldLeader.leaderId).toBe(newLeader.id);
+    runScenario(leaderPartitioned);
   });
 
   it("a minority partition never elects a leader", () => {
-    const cluster = new Cluster({ size: 5, seed: 4 });
-    cluster.network.partition([
-      ["n1", "n2"],
-      ["n3", "n4", "n5"],
-    ]);
-
-    for (let i = 0; i < 500; i++) {
-      cluster.step();
-      expect(cluster.node("n1").role).not.toBe("leader");
-      expect(cluster.node("n2").role).not.toBe("leader");
-    }
-    expect(["n3", "n4", "n5"]).toContain(cluster.leader()?.id);
+    runScenario(minorityNoLeader);
   });
 
   it("no leader is elected when every node is isolated", () => {

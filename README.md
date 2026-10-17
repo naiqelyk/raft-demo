@@ -62,7 +62,10 @@ what it returns), and every fault is injected from outside.
 - `test/integration_test/`: seeded clusters. This covers elections and replication under
   partitions and message loss, crash and restart, and failure scenarios: overwritten
   uncommitted entries, re-delivered old messages, and an old-term entry that reaches a
-  majority during a series of leader changes.
+  majority during a series of leader changes. Most of these are **scenario scripts** in
+  `test/util/scenarios/`: plain functions that act through a small `Sim` wrapper
+  (`test/util/sim.ts`: partition, crash, submit, wait, check). The tests run them with
+  each check as an assertion, and the UI will replay the same scripts as a timelapse.
 - **Invariant checker** (`src/sim/invariants.ts`): checks Raft's four safety properties.
   - At most one leader per term.
   - Logs that agree at an entry agree on everything before it.

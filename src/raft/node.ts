@@ -138,6 +138,11 @@ export class RaftNode {
     return this.termAt(this.lastLogIndex());
   }
 
+  /** How far the election timer has run, from 0 to 1. Always 0 for a leader. */
+  electionProgress(): number {
+    return this.role === "leader" ? 0 : this.electionElapsed / this.electionTimeout;
+  }
+
   /** Term of the entry at `index`; 0 for index 0 or past the end of the log. */
   termAt(index: number): number {
     return this.log[index - 1]?.term ?? 0;

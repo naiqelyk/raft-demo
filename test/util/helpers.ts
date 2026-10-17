@@ -1,7 +1,9 @@
 // Helpers shared by more than one test file. Helpers used by a single file
 // stay next to the tests that use them.
+import { expect } from "vitest";
 import { RaftNode } from "../../src/raft/node";
 import type { AppendEntries, LogEntry, NodeId } from "../../src/raft/types";
+import { Sim, type Scenario } from "./sim";
 import { Cluster } from "../../src/sim/cluster";
 import { Rng } from "../../src/sim/rng";
 
@@ -40,4 +42,14 @@ export function electedCluster(size: number, seed = 1): Cluster {
   const cluster = new Cluster({ size, seed });
   cluster.runUntil(() => cluster.leader() !== undefined);
   return cluster;
+}
+
+/** Runs a shared scenario with every `sim.check` turned into an `expect` assertion. */
+export function runScenario(scenario: Scenario): Sim {
+  const sim = new Sim(scenario, {
+    checkInvariants: scenario.checkInvariants ?? false,
+    onCheck: (label, actual, expected) => expect(actual, label).toEqual(expected),
+  });
+  scenario.run(sim);
+  return sim;
 }

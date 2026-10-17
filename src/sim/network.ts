@@ -16,6 +16,8 @@ export const DEFAULT_NETWORK_OPTIONS: NetworkOptions = {
   dropRate: 0,
 };
 
+export type LossReason = "dropped" | "partitioned";
+
 export interface InFlight {
   msg: Message;
   sentAt: number;
@@ -29,6 +31,8 @@ export interface InFlight {
  */
 export class Network {
   options: NetworkOptions;
+  /** Called for every message that is lost, e.g. so the UI can show it. */
+  onLost?: (msg: Message, reason: LossReason) => void;
   private inFlight: InFlight[] = [];
   /** Partition group of each node, or null when the network is fully connected. */
   private groups: Map<NodeId, number> | null = null;
@@ -41,7 +45,10 @@ export class Network {
   }
 
   send(msg: Message, now: number): void {
-    if (this.rng.chance(this.options.dropRate)) return;
+    if (this.rng.chance(this.options.dropRate)) {
+      this.onLost?.(msg, "dropped");
+      return;
+    }
     const delay = this.rng.int(this.options.minDelay, this.options.maxDelay);
     this.inFlight.push({ msg, sentAt: now, deliverAt: now + delay });
   }
@@ -58,10 +65,12 @@ export class Network {
       (item.deliverAt <= now ? due : remaining).push(item);
     }
     this.inFlight = remaining;
-    return due
-      .filter((item) => this.canReach(item.msg.from, item.msg.to))
-      .sort((a, b) => a.deliverAt - b.deliverAt)
-      .map((item) => item.msg);
+    const delivered = due.filter((item) => {
+      const reachable = this.canReach(item.msg.from, item.msg.to);
+      if (!reachable) this.onLost?.(item.msg, "partitioned");
+      return reachable;
+    });
+    return delivered.sort((a, b) => a.deliverAt - b.deliverAt).map((item) => item.msg);
   }
 
   /** Splits the cluster into groups. Nodes not listed are isolated. */

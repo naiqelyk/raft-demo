@@ -26,6 +26,8 @@ export class Cluster {
   readonly nodes: Map<NodeId, RaftNode>;
   /** Node ids n1..nN. Hold on to these rather than node objects: a restart replaces the object. */
   readonly ids: NodeId[];
+  /** Called at the end of every `step()`, e.g. to record or check the cluster. */
+  onStep?: () => void;
   private readonly rng: Rng;
   private readonly config: RaftConfig;
   private readonly down = new Set<NodeId>();
@@ -47,6 +49,7 @@ export class Cluster {
       if (node && this.isUp(node.id)) this.send(node.receive(msg));
     }
     for (const node of this.upNodes()) this.send(node.tick());
+    this.onStep?.();
   }
 
   /**
