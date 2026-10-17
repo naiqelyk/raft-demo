@@ -1,8 +1,8 @@
 import type { ClientResult, RaftNode } from "../../src/raft/node";
-import type { Command, NodeId } from "../../src/raft/types";
+import type { Command, Message, NodeId } from "../../src/raft/types";
 import { Cluster } from "../../src/sim/cluster";
 import { InvariantChecker } from "../../src/sim/invariants";
-import type { NetworkOptions } from "../../src/sim/network";
+import type { LossReason, NetworkOptions } from "../../src/sim/network";
 
 /**
  * A scripted run of the cluster, shared by the integration tests and the UI.
@@ -41,6 +41,8 @@ export interface SimOptions {
   afterStep?: () => void;
   /** Called after each action (crash, partition, submit, ...), which happen between ticks. */
   afterAction?: () => void;
+  /** Called for every lost message. */
+  onLost?: (msg: Message, reason: LossReason) => void;
 }
 
 export class Sim {
@@ -48,12 +50,18 @@ export class Sim {
   readonly events: SimEvent[] = [];
   /** The current partition as passed to `partition()`, or null when healed. */
   partitionGroups: NodeId[][] | null = null;
+  /** How many messages have been lost so far, by reason. */
+  readonly lost: Record<LossReason, number> = { dropped: 0, partitioned: 0, crashed: 0 };
 
   constructor(
     scenario: Scenario,
     private readonly options: SimOptions = {},
   ) {
     this.cluster = new Cluster({ size: scenario.size, seed: scenario.seed, network: scenario.network });
+    this.cluster.network.onLost = (msg, reason) => {
+      this.lost[reason]++;
+      options.onLost?.(msg, reason);
+    };
     let checker = options.checkInvariants ? new InvariantChecker() : undefined;
     this.cluster.onStep = () => {
       try {

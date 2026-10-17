@@ -60,8 +60,8 @@ export function record(scenario: Scenario): Recording {
       frames.push(snapshot(sim, [...previous.lost, ...lost]));
       lost = [];
     },
+    onLost: (msg, reason) => lost.push({ msg, reason }),
   });
-  sim.cluster.network.onLost = (msg, reason) => lost.push({ msg, reason });
   frames.push(snapshot(sim, []));
 
   let error: string | undefined;

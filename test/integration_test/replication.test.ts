@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { laggingFollower, minorityLeaderCantCommit } from "../util/scenarios/replication";
+import { happyPath, laggingFollower, minorityLeaderCantCommit } from "../util/scenarios/replication";
 import { Cluster } from "../../src/sim/cluster";
 import { electedCluster, kvOf, runScenario } from "../util/helpers";
 
@@ -17,6 +17,10 @@ describe("Cluster replication", () => {
       expect(kvOf(node)).toEqual({ b: "2" });
       expect(node.log).toEqual(cluster.leader()!.log);
     }
+  });
+
+  it("replicates every write to every node despite dropped and delayed messages", () => {
+    runScenario(happyPath);
   });
 
   it("fails to submit when there is no leader", () => {

@@ -1,5 +1,40 @@
 import { kvObject, type Scenario } from "../sim";
 
+export const happyPath: Scenario = {
+  id: "happy-path",
+  title: "Happy path",
+  description:
+    "A healthy cluster on an imperfect network: about 1 in 10 messages is dropped and delays vary, so messages also arrive out of order. The leader keeps resending what each follower is missing, and every write reaches every node's store.",
+  size: 5,
+  seed: 1,
+  network: { dropRate: 0.1, maxDelay: 5 },
+  run(sim) {
+    const { cluster } = sim;
+    sim.runUntil("a leader is elected", () => cluster.leader() !== undefined);
+    const leader = cluster.leader()!;
+    const term = leader.currentTerm;
+
+    sim.commit({ op: "put", key: "a", value: "1" });
+    sim.commit({ op: "put", key: "b", value: "2" });
+    sim.commit({ op: "put", key: "c", value: "3" });
+    sim.commit({ op: "put", key: "b", value: "20" });
+    sim.commit({ op: "delete", key: "a" });
+
+    sim.assert("some messages were dropped along the way", sim.lost.dropped > 0);
+    sim.check("the same leader stayed in charge", [cluster.leader()?.id, cluster.leader()?.currentTerm], [leader.id, term]);
+    sim.check(
+      "every node has the same store",
+      cluster.ids.map((id) => kvObject(sim.node(id))),
+      cluster.ids.map(() => ({ b: "20", c: "3" })),
+    );
+    sim.check(
+      "every node has the same log",
+      cluster.ids.map((id) => sim.node(id).log),
+      cluster.ids.map(() => leader.log),
+    );
+  },
+};
+
 export const minorityLeaderCantCommit: Scenario = {
   id: "minority-leader-cant-commit",
   title: "Leader in a minority can't commit",
