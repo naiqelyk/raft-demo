@@ -9,6 +9,9 @@ npm test          # run the test suite
 npm run dev       # open the timelapse viewer
 ```
 
+https://github.com/user-attachments/assets/b4089e4b-b978-47b5-911d-efb79e8567d6
+
+
 ## Design
 
 Everything runs in one process on a **deterministic simulated network**. Time is a tick
@@ -44,14 +47,14 @@ what it returns), and every fault is injected from outside.
   copies of entries **from its own term**. An older entry on a majority can still be
   overwritten by a node whose log ends in a newer term. Earlier entries commit along
   with a current-term entry instead.
-- **Election no-op:** a new leader immediately appends an empty entry from its own term,
-  so entries left over from earlier terms commit right away instead of waiting for the
-  next client write.
 - **Crash/restart:** only `currentTerm`, `votedFor` and the `log` survive a crash, as if
   on disk. A restart builds a fresh node from them, and it rebuilds its key-value store
   by re-applying the log once it learns the commit index.
 - **Reads** come from any node's local store. That's simple but can be stale, which is
   a deliberate trade-off for a toy.
+- **Election no-op:** a new leader immediately appends an empty entry from its own term,
+  so entries left over from earlier terms commit right away instead of waiting for the
+  next client write.
 
 ## Testing
 
@@ -73,7 +76,13 @@ what it returns), and every fault is injected from outside.
   partitions, with the invariant checker run after **every tick**. Once faults stop,
   a final write must reach every node (liveness).
 
-## Out of scope
+## AI Usage
 
-Log compaction, membership changes, exactly-once client semantics, one-way partitions,
-and PreVote.
+I used AI heavily throughout the assignment and wanted to avoid "one-shotting" it. My workflow was as follows:
+1. Research and learn about consensus algorithms (Raft) using ChatGPT
+2. Iterate and align on a technical solution with Claude Code following goals + design principles that I set
+3. Have Claude Code implement the solution in steps, where I check its work after every step
+4. Have Codex double-check the solution and propose any improvements
+5. Iterate on test cases and UI until I am satisfied with the results
+6. Cleanup the code with Claude Code
+7. Summarize its architecture in README.md
