@@ -6,7 +6,6 @@ that replicates a key-value store across a cluster of simulated nodes, with test
 ```sh
 npm install
 npm test          # run the test suite
-npm run typecheck # type-check without emitting
 npm run dev       # open the timelapse viewer
 ```
 
@@ -77,5 +76,4 @@ what it returns), and every fault is injected from outside.
 ## Out of scope
 
 Log compaction, membership changes, exactly-once client semantics, one-way partitions,
-and PreVote. Without PreVote, a node returning from a partition with a higher term forces
-the leader to step down, which is safe but disruptive.
+and PreVote.
