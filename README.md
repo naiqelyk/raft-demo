@@ -4,8 +4,8 @@ A small, readable implementation of the [Raft consensus algorithm](https://raft.
 that replicates a key-value store across a cluster of simulated nodes. It includes tests for
 the failure modes that matter and an interactive UI.
 
-> **Status:** work in progress. Election, replication, crash/restart and the failure
-> scenarios are done; an invariant checker with randomized chaos tests is next.
+> **Status:** work in progress. The Raft core is done and tested, including an
+> invariant checker and randomized chaos tests; the interactive UI is next.
 > See [Progress](#progress).
 
 ## Quick start
@@ -86,6 +86,55 @@ outdated leader. Without the `log`, a committed entry could disappear.
 Default timings (in ticks): message delay 1–3, heartbeat every 5, election timeout
 randomized in 15–30.
 
+### Invariants and chaos testing
+
+`InvariantChecker` (`src/sim/invariants.ts`) checks the safety properties from Figure 3
+of the paper. It keeps history, because two of them are about the past:
+
+| Invariant | Meaning |
+|---|---|
+| Election safety | At most one leader per term, ever. |
+| Log matching | If two logs have an entry with the same index and term, they're identical up to it. |
+| Leader completeness | Every committed entry is in the log of every leader of a later term. |
+| State machine safety | No two nodes ever commit (and so apply) different entries at the same index. |
+
+The chaos test runs 50 seeds of 2000 ticks each, on 3 or 5 nodes with 5% message loss. On
+random ticks it submits writes, crashes and restarts nodes (sometimes a majority), and
+partitions or heals the network, and it **runs the checker after every tick**. A typical
+seed sees about 100 writes, 10 crashes, 7 partitions, terms climbing past 30, and no
+leader for about 20% of the time. Faults come from their own RNG derived from the seed,
+so any failure replays exactly.
+
+After the chaos it checks **liveness**: with faults stopped, a final write must reach
+every node. Like a real client, the test resubmits when a new leader or term appears. A
+write from an earlier term only commits once the new leader commits one of its own, so a
+single unretried write can stall.
+
+**How much does chaos catch on its own?** We broke one rule at a time and ran only the
+chaos test:
+
+| Deliberate bug | Caught by chaos (50 seeds) |
+|---|---|
+| Majority computed as ⌊n/2⌋ | 48 / 50 seeds |
+| No up-to-date-log check when voting | 42 / 50 |
+| Log not persisted across restart | 39 / 50 |
+| Truncate even when entries match | 23 / 50 |
+| `currentTerm` not persisted | 6 / 50 |
+| No Figure 8 commit restriction | not caught |
+| `votedFor` not persisted | not caught |
+| Follower commit not capped by the message | can't happen here (see below) |
+
+The misses need very specific interleavings, which is why the hand-written tests cover
+them.
+- Figure 8 needs a particular chain of leader changes.
+- A lost `votedFor` only matters if a node crashes and restarts mid-election, between two
+  candidates' requests.
+- The commit cap can't bind in this implementation, because the leader always sends
+  every entry up to the end of its log. It matters for implementations that send in
+  batches.
+
+Random testing and scenario tests complement each other: neither is enough alone.
+
 ## Progress
 
 - [x] Project scaffold (TypeScript, Vitest)
@@ -93,7 +142,7 @@ randomized in 15–30.
 - [x] Leader election + cluster harness
 - [x] Log replication, commit rules, key-value state machine
 - [x] Crash/restart with persistent state; scenario tests for failure modes
-- [ ] Invariant checker + randomized chaos tests
+- [x] Invariant checker + randomized chaos tests
 - [ ] Interactive UI (Vite + React)
 - [ ] Final write-up
 
@@ -131,6 +180,12 @@ clusters, including the failure scenarios.
   nothing; and **Figure 8** of the paper, replayed with crashes and partitions on 5 nodes:
   an old-term entry that reaches a majority is not committed, and is later safely
   overwritten by a leader with a newer entry.
+- **Invariant checker:** each of the four invariants is caught when a cluster's state is
+  corrupted by hand, including a committed entry disappearing later, and a healthy run
+  passes.
+- **Chaos and liveness:** 50 seeds of random writes, crashes, restarts and partitions
+  with all invariants checked every tick, then every node must apply a final write once
+  faults stop.
 
 ## Out of scope
 
