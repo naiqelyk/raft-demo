@@ -128,23 +128,45 @@ describe("RaftNode leader replication", () => {
     const result = node.clientRequest({ op: "put", key: "k", value: "v" });
 
     if (!result.ok) throw new Error("expected leader to accept");
-    expect(result.index).toBe(1);
+    expect(result.index).toBe(2); // after the election no-op
+    const entries = [{ command: { op: "noop" } }, { command: { op: "put", key: "k" } }];
     expect(result.messages).toMatchObject([
-      { to: "n2", prevLogIndex: 0, entries: [{ term: 1 }] },
-      { to: "n3", prevLogIndex: 0, entries: [{ term: 1 }] },
+      { to: "n2", prevLogIndex: 0, entries },
+      { to: "n3", prevLogIndex: 0, entries },
+    ]);
+  });
+
+  it("appends a no-op from its own term when elected, and sends it right away", () => {
+    const node = newNode();
+    node.currentTerm = 1;
+    node.log = [entry(1, "a")];
+
+    for (let i = 0; i < 100 && node.role !== "candidate"; i++) node.tick();
+    const announce = node.receive({
+      type: "RequestVoteResponse",
+      from: "n2",
+      to: "n1",
+      term: 2,
+      voteGranted: true,
+    });
+
+    expect(node.log).toEqual([entry(1, "a"), { term: 2, command: { op: "noop" } }]);
+    expect(announce).toMatchObject([
+      { to: "n2", prevLogIndex: 1, entries: [{ term: 2, command: { op: "noop" } }] },
+      { to: "n3", prevLogIndex: 1, entries: [{ term: 2, command: { op: "noop" } }] },
     ]);
   });
 
   it("commits once a majority stores the entry, not before", () => {
     const node = newNode("n1", ["n2", "n3", "n4", "n5"]);
     makeLeader(node);
-    node.clientRequest({ op: "put", key: "k", value: "v" });
+    node.clientRequest({ op: "put", key: "k", value: "v" }); // index 2, after the no-op
 
-    ackFrom("n2", node, 1);
+    ackFrom("n2", node, 2);
     expect(node.commitIndex).toBe(0);
 
-    ackFrom("n3", node, 1);
-    expect(node.commitIndex).toBe(1);
+    ackFrom("n3", node, 2);
+    expect(node.commitIndex).toBe(2);
     expect(kvOf(node)).toEqual({ k: "v" });
   });
 
@@ -154,21 +176,22 @@ describe("RaftNode leader replication", () => {
     node.clientRequest({ op: "put", key: "a", value: "1" });
     node.clientRequest({ op: "put", key: "b", value: "2" });
 
-    ackFrom("n2", node, 2);
-    ackFrom("n2", node, 1); // late reply to the first request
+    // Log: no-op, a, b.
+    ackFrom("n2", node, 3);
+    ackFrom("n2", node, 2); // late reply to an earlier request
 
-    expect(node.commitIndex).toBe(2);
-    // The next heartbeat to n2 starts after index 2: nothing to resend.
+    expect(node.commitIndex).toBe(3);
+    // The next heartbeat to n2 starts after index 3: nothing to resend.
     let heartbeat: Message[] = [];
     while (heartbeat.length === 0) heartbeat = node.tick();
-    expect(heartbeat[0]).toMatchObject({ to: "n2", prevLogIndex: 2, entries: [] });
+    expect(heartbeat[0]).toMatchObject({ to: "n2", prevLogIndex: 3, entries: [] });
   });
 
   it("backs off one entry on rejection and retries immediately", () => {
     const node = newNode();
     node.currentTerm = 1;
     node.log = [entry(1, "a"), entry(1, "b"), entry(1, "c")];
-    makeLeader(node);
+    makeLeader(node); // term 2; appends a no-op at index 4
 
     const retry = node.receive({
       type: "AppendEntriesResponse",
@@ -179,33 +202,36 @@ describe("RaftNode leader replication", () => {
       matchIndex: 0,
     });
 
-    expect(retry).toMatchObject([{ to: "n2", prevLogIndex: 2, prevLogTerm: 1, entries: [{ term: 1 }] }]);
+    expect(retry).toMatchObject([
+      { to: "n2", prevLogIndex: 2, prevLogTerm: 1, entries: [{ term: 1 }, { term: 2 }] },
+    ]);
   });
 
-  it("never commits an earlier term's entry by counting replicas (Figure 8)", () => {
+  it("never commits an earlier term's entry by counting replicas", () => {
     const node = newNode();
     node.currentTerm = 2;
     node.log = [entry(1, "a"), entry(2, "b")];
-    makeLeader(node); // term 3
+    makeLeader(node); // term 3; appends a no-op at index 3
 
     // Index 2 is now on a majority, but it's from term 2, so it must not commit.
     ackFrom("n2", node, 2);
     expect(node.commitIndex).toBe(0);
 
-    // Once an entry from term 3 reaches a majority, everything before it commits too.
-    node.clientRequest({ op: "put", key: "c", value: "v3" });
+    // Once the term-3 no-op reaches a majority, everything before it commits too.
     ackFrom("n2", node, 3);
     expect(node.commitIndex).toBe(3);
-    expect(kvOf(node)).toEqual({ a: "v1", b: "v2", c: "v3" });
+    expect(kvOf(node)).toEqual({ a: "v1", b: "v2" });
   });
 
   it("a single-node cluster commits immediately", () => {
     const node = newNode("n1", []);
     for (let i = 0; i < 100 && node.role !== "leader"; i++) node.tick();
 
+    expect(node.commitIndex).toBe(1); // the election no-op
+
     node.clientRequest({ op: "put", key: "k", value: "v" });
 
-    expect(node.commitIndex).toBe(1);
+    expect(node.commitIndex).toBe(2);
     expect(kvOf(node)).toEqual({ k: "v" });
   });
 });

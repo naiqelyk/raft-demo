@@ -169,7 +169,7 @@ export class RaftNode {
 
   private handleRequestVote(msg: RequestVote): Message[] {
     // Only vote for candidates whose log is at least as up-to-date as ours,
-    // so that a new leader always holds every committed entry (§5.4.1).
+    // so that a new leader always holds every committed entry.
     const logIsUpToDate =
       msg.lastLogTerm > this.lastLogTerm() ||
       (msg.lastLogTerm === this.lastLogTerm() && msg.lastLogIndex >= this.lastLogIndex());
@@ -210,6 +210,12 @@ export class RaftNode {
       this.nextIndex.set(peer, this.lastLogIndex() + 1);
       this.matchIndex.set(peer, 0);
     }
+    // Append a no-op from our own term. Entries left over from earlier terms
+    // only commit along with an entry from the current term (see
+    // advanceCommitIndex), so this commits them now instead of waiting for the
+    // next client write.
+    this.log.push({ term: this.currentTerm, command: { op: "noop" } });
+    this.advanceCommitIndex(); // a single-node cluster commits immediately
     // Announce leadership immediately so other candidates stand down.
     return this.broadcastAppendEntries();
   }
@@ -308,9 +314,12 @@ export class RaftNode {
   /** Leader: commit the highest entry from the current term stored on a majority. */
   private advanceCommitIndex(): void {
     for (let n = this.lastLogIndex(); n > this.commitIndex; n--) {
-      // Never commit an earlier term's entry by counting replicas (§5.4.2,
-      // Figure 8); it commits indirectly with a current-term entry after it.
-      // Terms only grow along the log, so nothing below n qualifies either.
+      // The current-term commit rule: only count replicas of entries from our
+      // own term. An earlier-term entry can be on a majority and still be
+      // overwritten later by a leader whose log ends in a newer term. Once a
+      // current-term entry is on a majority, no node without it can win an
+      // election, so it and everything before it are safe. Terms only grow
+      // along the log, so nothing below n qualifies either.
       if (this.termAt(n) !== this.currentTerm) return;
 
       const replicas = 1 + this.peers.filter((peer) => (this.matchIndex.get(peer) ?? 0) >= n).length;
@@ -332,7 +341,7 @@ export class RaftNode {
 
   private apply(command: Command): void {
     if (command.op === "put") this.kv.set(command.key, command.value);
-    else this.kv.delete(command.key);
+    else if (command.op === "delete") this.kv.delete(command.key);
   }
 
   // --- Helpers ---------------------------------------------------------------

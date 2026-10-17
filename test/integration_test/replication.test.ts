@@ -9,7 +9,8 @@ describe("Cluster replication", () => {
     cluster.submit({ op: "put", key: "a", value: "1" });
     cluster.submit({ op: "put", key: "b", value: "2" });
     cluster.submit({ op: "delete", key: "a" });
-    cluster.runUntil(() => [...cluster.nodes.values()].every((n) => n.lastApplied === 3));
+    // The election no-op, then three commands.
+    cluster.runUntil(() => [...cluster.nodes.values()].every((n) => n.lastApplied === 4));
 
     for (const node of cluster.nodes.values()) {
       expect(kvOf(node)).toEqual({ b: "2" });
@@ -34,13 +35,13 @@ describe("Cluster replication", () => {
     // ...but can never commit it.
     cluster.runUntil(() => cluster.leader() !== oldLeader);
     cluster.run(100);
-    expect(oldLeader.log).toHaveLength(1);
+    expect(oldLeader.log).toHaveLength(2); // its election no-op and the write
     expect(oldLeader.commitIndex).toBe(0);
 
     // The majority elects a new leader and commits a different value.
     cluster.submit({ op: "put", key: "k", value: "kept" });
     const newLeader = cluster.leader()!;
-    cluster.runUntil(() => newLeader.commitIndex === 1);
+    cluster.runUntil(() => newLeader.kv.get("k") === "kept");
 
     cluster.network.heal();
     cluster.runUntil(() => [...cluster.nodes.values()].every((n) => n.kv.get("k") === "kept"));
@@ -55,11 +56,11 @@ describe("Cluster replication", () => {
     cluster.network.partition([[laggard.id], rest]);
 
     for (let i = 1; i <= 5; i++) cluster.submit({ op: "put", key: `k${i}`, value: `${i}` });
-    cluster.runUntil(() => leader.commitIndex === 5);
+    cluster.runUntil(() => leader.kv.get("k5") === "5");
     expect(laggard.log).toHaveLength(0);
 
     cluster.network.heal();
-    cluster.runUntil(() => laggard.lastApplied === 5);
+    cluster.runUntil(() => laggard.lastApplied === leader.commitIndex);
     expect(kvOf(laggard)).toEqual(kvOf(leader));
   });
 

@@ -1,11 +1,16 @@
-// Core Raft data types, following Figure 2 of the Raft paper.
+// Core Raft data types: log entries and the four messages nodes exchange.
 
 export type NodeId = string;
 
-/** A command for the replicated key-value state machine. */
+/**
+ * A command for the replicated key-value state machine. A `noop` changes
+ * nothing: a new leader appends one so it has an entry from its own term to
+ * commit (see `RaftNode.becomeLeader`).
+ */
 export type Command =
   | { op: "put"; key: string; value: string }
-  | { op: "delete"; key: string };
+  | { op: "delete"; key: string }
+  | { op: "noop" };
 
 export interface LogEntry {
   term: number;
@@ -44,8 +49,8 @@ export interface AppendEntriesResponse extends BaseMessage {
   success: boolean;
   /**
    * On success, the index of the last entry the follower now matches; 0 on
-   * failure. Not in Figure 2, but it lets the leader handle reordered or
-   * duplicated responses without guessing which request this one answers.
+   * failure. Not part of standard Raft, but it lets the leader handle reordered
+   * or duplicated responses without guessing which request this one answers.
    */
   matchIndex: number;
 }

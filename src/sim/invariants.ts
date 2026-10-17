@@ -3,7 +3,7 @@ import type { Command, LogEntry, NodeId } from "../raft/types";
 import type { Cluster } from "./cluster";
 
 /**
- * Checks Raft's safety properties (Figure 3 of the paper). Call `check()` after
+ * Checks Raft's four safety properties. Call `check()` after
  * every step. It keeps history, because two of the properties are about the
  * past: who led each term, and which entries have ever been committed.
  */
@@ -91,5 +91,6 @@ function sameEntry(a: LogEntry | undefined, b: LogEntry | undefined): boolean {
 
 function sameCommand(a: Command, b: Command): boolean {
   if (a.op === "put" && b.op === "put") return a.key === b.key && a.value === b.value;
-  return a.op === b.op && a.key === b.key;
+  if (a.op === "delete" && b.op === "delete") return a.key === b.key;
+  return a.op === "noop" && b.op === "noop";
 }

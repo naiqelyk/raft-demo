@@ -71,8 +71,7 @@ describe("Chaos", () => {
 
       // Liveness: once faults stop, a final write reaches every node. Like a real
       // client, we resubmit whenever a new leader or term appears, because a
-      // write from an earlier term only commits once the new leader commits one
-      // of its own.
+      // write sent to a leader that is then replaced may be lost.
       cluster.network.heal();
       cluster.network.options.dropRate = 0;
       for (const id of ids) if (!cluster.isUp(id)) cluster.restart(id);

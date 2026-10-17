@@ -31,7 +31,7 @@ describe("Crash and restart", () => {
 
     cluster.restart(oldId);
     const old = cluster.node(oldId);
-    cluster.runUntil(() => old.lastApplied === 2);
+    cluster.runUntil(() => old.kv.get("b") === "2");
     expect(old.role).toBe("follower");
     expect(kvOf(old)).toEqual({ a: "1", b: "2" });
   });
@@ -48,12 +48,12 @@ describe("Crash and restart", () => {
 
     // Persistent state survived; volatile state starts over.
     expect(follower.currentTerm).toBe(termBefore);
-    expect(follower.log).toHaveLength(3);
+    expect(follower.log).toHaveLength(4); // the election no-op, then a, b, c
     expect(follower.commitIndex).toBe(0);
     expect(kvOf(follower)).toEqual({});
 
     // The next heartbeat's leaderCommit lets it re-apply the log.
-    cluster.runUntil(() => follower.lastApplied === 3);
+    cluster.runUntil(() => follower.lastApplied === 4);
     expect(kvOf(follower)).toEqual({ a: "v", b: "v", c: "v" });
   });
 
@@ -81,12 +81,13 @@ describe("Crash and restart", () => {
     const cluster = electedCluster(3);
     commit(cluster, "a", "1");
     const leader = cluster.leader()!;
+    const committed = leader.commitIndex;
     const followers = cluster.upNodes().filter((n) => n !== leader).map((n) => n.id);
     for (const id of followers) cluster.crash(id);
 
     expect(cluster.submit({ op: "put", key: "b", value: "2" }).ok).toBe(true);
     cluster.run(200);
-    expect(leader.commitIndex).toBe(1);
+    expect(leader.commitIndex).toBe(committed);
 
     cluster.restart(followers[0]!);
     cluster.runUntil(() => cluster.upNodes().every((n) => n.kv.get("b") === "2"));
@@ -104,16 +105,16 @@ describe("Failure scenarios", () => {
     // messages clientRequest returns are simply never sent.
     cluster.node(oldId).clientRequest({ op: "put", key: "x", value: "lost" });
     cluster.node(oldId).clientRequest({ op: "put", key: "y", value: "lost" });
-    expect(cluster.node(oldId).log).toHaveLength(3);
+    expect(cluster.node(oldId).log).toHaveLength(4); // no-op, a, and the two lost writes
     cluster.crash(oldId);
 
-    // The others elect a leader and commit something else at index 2.
+    // The others elect a leader, whose no-op and new write take those indices.
     cluster.runUntil(() => cluster.leader() !== undefined);
     commit(cluster, "x", "kept");
 
     cluster.restart(oldId);
     const old = cluster.node(oldId);
-    cluster.runUntil(() => old.lastApplied === 2);
+    cluster.runUntil(() => old.kv.get("x") === "kept");
     expect(old.log).toEqual(cluster.leader()!.log);
     expect(kvOf(old)).toEqual({ a: "1", x: "kept" });
   });
@@ -142,49 +143,51 @@ describe("Failure scenarios", () => {
     commit(cluster, "d", "v");
   });
 
-  it("never commits an old-term entry just because it reached a majority (Figure 8)", () => {
-    // Follows Figure 8 of the Raft paper, steering elections with partitions and crashes.
+  it("an old-term entry on a majority commits with the next leader's no-op, not by counting", () => {
+    // Replays the scenario behind the current-term commit rule (see the README),
+    // steering elections with partitions and crashes. Without the election no-op,
+    // the old-term entry y=a could reach a majority without committing and later
+    // be overwritten. With it, y=a travels with the next leader's no-op and
+    // commits, and the conflicting entry is the one discarded. (The rule itself
+    // is unit tested in unit_test/replication.test.ts.)
     const cluster = electedCluster(5);
-    commit(cluster, "x", "1");
+    commit(cluster, "x", "1"); // log: no-op, x
 
-    // (a) Leader A replicates y=a to B only, then crashes. It can't commit (2 of 5).
+    // (a) Leader A replicates y=a (index 3) to B only, then crashes. It can't commit (2 of 5).
     const a = leaderId(cluster);
-    const b = cluster.upNodes().find((n) => n.id !== a)!.id;
-    const rest = cluster.upNodes().map((n) => n.id).filter((id) => id !== a && id !== b);
+    const b = cluster.ids.find((id) => id !== a)!;
+    const rest = cluster.ids.filter((id) => id !== a && id !== b);
     cluster.network.partition([[a, b], rest]);
     cluster.submit({ op: "put", key: "y", value: "a" });
-    cluster.runUntil(() => cluster.node(b).log.length === 2);
+    cluster.runUntil(() => cluster.node(b).log.length === 3);
     cluster.crash(a);
-    const oldTerm = cluster.node(b).termAt(2);
+    const oldTerm = cluster.node(b).termAt(3);
 
-    // (b) One of the other three, E, wins with just their votes, accepts y=e at
-    // index 2 in a newer term, and crashes before sending it anywhere.
+    // (b) One of the other three, E, wins with just their votes and appends its
+    // no-op at index 3 in a newer term. Cut E off before that reaches anyone,
+    // then crash it. Partitions apply at delivery, so its in-flight messages are lost.
     cluster.runUntil(() => cluster.leaders().some((n) => rest.includes(n.id)));
     const e = leaderId(cluster);
     const [r1, r2] = rest.filter((id) => id !== e) as [NodeId, NodeId];
-    cluster.node(e).clientRequest({ op: "put", key: "y", value: "e" });
+    cluster.network.partition([[e], [b, r1, r2]]);
     cluster.crash(e);
+    cluster.run(5);
+    expect(cluster.node(r1).log).toHaveLength(2);
 
-    // (c) A or B wins a later term and spreads the old y=a entry to a majority.
-    // It must not count replicas for an earlier term's entry, so nothing commits.
+    // (c) A or B wins a later term (r1 and r2 have shorter logs, so they can't),
+    // and sends y=a together with its own no-op. Both commit.
     cluster.restart(a);
     cluster.network.heal();
-    cluster.runUntil(() =>
-      [r1, r2].every((id) => cluster.node(id).termAt(2) === oldTerm),
-    );
-    cluster.run(50);
-    for (const node of cluster.upNodes()) expect(node.commitIndex).toBe(1);
+    cluster.runUntil(() => cluster.upNodes().every((n) => n.kv.get("y") === "a"));
+    expect(cluster.node(r1).termAt(3)).toBe(oldTerm);
 
-    // (d) With A and B down, only E can win: its index-2 entry has the newest
-    // term. It overwrites y=a, which was safe only because y=a never committed.
+    // (d) Even with A and B down, E can't win any more: r1 and r2 have a newer
+    // last term. One of them leads instead and overwrites E's conflicting no-op.
     cluster.crash(a);
     cluster.crash(b);
     cluster.restart(e);
-    cluster.runUntil(() => cluster.leader()?.id === e);
-    commit(cluster, "z", "1");
-    for (const node of cluster.upNodes()) {
-      expect(node.termAt(2)).toBeGreaterThan(oldTerm);
-      expect(kvOf(node)).toEqual({ x: "1", y: "e", z: "1" });
-    }
+    cluster.runUntil(() => cluster.node(e).kv.get("y") === "a");
+    expect(cluster.leader()?.id).not.toBe(e);
+    expect(cluster.node(e).termAt(3)).toBe(oldTerm);
   });
 });
