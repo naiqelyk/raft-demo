@@ -138,12 +138,12 @@ export class RaftNode {
     return this.termAt(this.lastLogIndex());
   }
 
-  /** Term of the entry at `index`, or 0 for index 0 / past the end of the log. */
+  /** Term of the entry at `index`; 0 for index 0 or past the end of the log. */
   termAt(index: number): number {
     return this.log[index - 1]?.term ?? 0;
   }
 
-  // --- Elections -----------------------------------------------------------
+  // --- Elections -------------------------------------------------------------
 
   private startElection(): Message[] {
     this.role = "candidate";
@@ -256,8 +256,8 @@ export class RaftNode {
     // Reject leaders from stale terms; they'll step down when they see our term.
     if (msg.term < this.currentTerm) return [reply(false)];
 
-    // A valid leader exists for our term: a candidate concedes, and everyone
-    // resets their election timer.
+    // This is the legitimate leader for our term: follow it (a candidate
+    // concedes) and reset the election timer.
     this.role = "follower";
     this.leaderId = msg.from;
     this.resetElectionTimer();
@@ -282,8 +282,8 @@ export class RaftNode {
   }
 
   private handleAppendEntriesResponse(msg: AppendEntriesResponse): Message[] {
-    // Stepping down on a higher term is handled in receive(); ignore anything
-    // addressed to an earlier leadership.
+    // Stepping down on a higher term is handled in receive(). Ignore responses
+    // from an earlier term, or that arrive after we've stepped down.
     if (this.role !== "leader" || msg.term !== this.currentTerm) return [];
 
     const match = this.matchIndex.get(msg.from) ?? 0;
@@ -303,7 +303,7 @@ export class RaftNode {
     return [this.appendEntriesFor(msg.from)];
   }
 
-  // --- Commit and apply --------------------------------------------------------
+  // --- Commit and apply ------------------------------------------------------
 
   /** Leader: commit the highest entry from the current term stored on a majority. */
   private advanceCommitIndex(): void {

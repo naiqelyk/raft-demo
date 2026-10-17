@@ -3,16 +3,7 @@ import { RaftNode } from "../../src/raft/node";
 import type { Message, NodeId, RequestVote } from "../../src/raft/types";
 import { Cluster } from "../../src/sim/cluster";
 import { Rng } from "../../src/sim/rng";
-
-function kvOf(node: RaftNode): Record<string, string> {
-  return Object.fromEntries(node.kv);
-}
-
-function electedCluster(size: number, seed = 1): Cluster {
-  const cluster = new Cluster({ size, seed });
-  cluster.runUntil(() => cluster.leader() !== undefined);
-  return cluster;
-}
+import { electedCluster, kvOf } from "../util/helpers";
 
 function leaderId(cluster: Cluster): NodeId {
   const leader = cluster.leader();
@@ -166,8 +157,8 @@ describe("Failure scenarios", () => {
     cluster.crash(a);
     const oldTerm = cluster.node(b).termAt(2);
 
-    // (b) E is elected by the other three (B's longer log isn't needed), accepts
-    // y=e at index 2 in a newer term, and crashes before sending it anywhere.
+    // (b) One of the other three, E, wins with just their votes, accepts y=e at
+    // index 2 in a newer term, and crashes before sending it anywhere.
     cluster.runUntil(() => cluster.leaders().some((n) => rest.includes(n.id)));
     const e = leaderId(cluster);
     const [r1, r2] = rest.filter((id) => id !== e) as [NodeId, NodeId];

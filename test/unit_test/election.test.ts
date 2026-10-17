@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { RaftNode } from "../../src/raft/node";
-import type { AppendEntries, Message, NodeId, RequestVote } from "../../src/raft/types";
-import { Rng } from "../../src/sim/rng";
-
-function newNode(id: NodeId = "n1", peers: NodeId[] = ["n2", "n3"]): RaftNode {
-  return new RaftNode(id, peers, new Rng(1));
-}
+import type { RaftNode } from "../../src/raft/node";
+import type { Message, NodeId, RequestVote } from "../../src/raft/types";
+import { appendEntries, newNode } from "../util/helpers";
 
 /** Ticks a node until it times out and starts a new election. */
 function startElection(node: RaftNode): Message[] {
@@ -21,18 +17,7 @@ function requestVote(from: NodeId, term: number, lastLogIndex = 0, lastLogTerm =
   return { type: "RequestVote", from, to: "n1", term, lastLogIndex, lastLogTerm };
 }
 
-function heartbeat(from: NodeId, term: number): AppendEntries {
-  return {
-    type: "AppendEntries",
-    from,
-    to: "n1",
-    term,
-    prevLogIndex: 0,
-    prevLogTerm: 0,
-    entries: [],
-    leaderCommit: 0,
-  };
-}
+const heartbeat = (from: NodeId, term: number) => appendEntries({ from, term });
 
 function voteGranted(msgs: Message[]): boolean {
   const [reply] = msgs;

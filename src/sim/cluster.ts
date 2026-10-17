@@ -24,7 +24,8 @@ export class Cluster {
   now = 0;
   readonly network: Network;
   readonly nodes: Map<NodeId, RaftNode>;
-  private readonly ids: NodeId[];
+  /** Node ids n1..nN. Hold on to these rather than node objects: a restart replaces the object. */
+  readonly ids: NodeId[];
   private readonly rng: Rng;
   private readonly config: RaftConfig;
   private readonly down = new Set<NodeId>();
@@ -53,7 +54,7 @@ export class Cluster {
    * still delivered.
    */
   crash(id: NodeId): void {
-    this.node(id);
+    this.node(id); // throws on an unknown id
     this.down.add(id);
   }
 

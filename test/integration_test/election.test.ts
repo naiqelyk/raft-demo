@@ -40,7 +40,7 @@ describe("Cluster elections", () => {
     const cluster = new Cluster({ size: 5, seed: 3 });
     cluster.runUntil(() => cluster.leader() !== undefined);
     const oldLeader = cluster.leader()!;
-    const others = [...cluster.nodes.keys()].filter((id) => id !== oldLeader.id);
+    const others = cluster.ids.filter((id) => id !== oldLeader.id);
 
     cluster.network.partition([[oldLeader.id], others]);
     cluster.runUntil(() => cluster.leader()?.id !== oldLeader.id);

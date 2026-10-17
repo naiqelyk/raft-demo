@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { LogEntry } from "../../src/raft/types";
 import { Cluster } from "../../src/sim/cluster";
 import { InvariantChecker } from "../../src/sim/invariants";
-
-function entry(term: number, key: string): LogEntry {
-  return { term, command: { op: "put", key, value: "v" } };
-}
+import { entry } from "../util/helpers";
 
 // Each test corrupts a quiet cluster's state by hand and expects the checker to notice.
 describe("InvariantChecker", () => {

@@ -3,6 +3,7 @@ import type { NodeId } from "../../src/raft/types";
 import { Cluster } from "../../src/sim/cluster";
 import { InvariantChecker } from "../../src/sim/invariants";
 import { Rng } from "../../src/sim/rng";
+import { kvOf } from "../util/helpers";
 
 const SEEDS = 50;
 const CHAOS_TICKS = 2000;
@@ -32,15 +33,15 @@ describe("Chaos", () => {
   it.each(Array.from({ length: SEEDS }, (_, i) => i + 1))(
     "seed %i: invariants hold under random faults, and the cluster recovers once they stop",
     (seed) => {
-      // Faults come from their own RNG, so the network and nodes see the same
-      // randomness whatever the chaos schedule is; the seed still replays it all.
+      // Faults use their own RNG, so changing the chaos schedule doesn't change
+      // the network's or nodes' randomness. The seed still replays everything.
       const chaos = new Rng(seed + 1_000_000);
       const cluster = new Cluster({
         size: chaos.chance(0.5) ? 3 : 5,
         seed,
         network: { dropRate: 0.05, maxDelay: 5 },
       });
-      const ids = [...cluster.nodes.keys()];
+      const ids = cluster.ids;
       const checker = new InvariantChecker();
       const step = () => {
         cluster.step();
@@ -90,7 +91,7 @@ describe("Chaos", () => {
       }
       expect(applied(), "every node applied the final write").toBe(true);
 
-      const stores = ids.map((id) => Object.fromEntries(cluster.node(id).kv));
+      const stores = ids.map((id) => kvOf(cluster.node(id)));
       for (const store of stores) expect(store).toEqual(stores[0]);
     },
   );

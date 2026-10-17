@@ -1,29 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { RaftNode } from "../../src/raft/node";
-import type { AppendEntries, LogEntry, Message, NodeId } from "../../src/raft/types";
-import { Rng } from "../../src/sim/rng";
-
-function newNode(id: NodeId = "n1", peers: NodeId[] = ["n2", "n3"]): RaftNode {
-  return new RaftNode(id, peers, new Rng(1));
-}
-
-function entry(term: number, key = "k", value = `v${term}`): LogEntry {
-  return { term, command: { op: "put", key, value } };
-}
-
-function appendEntries(fields: Partial<AppendEntries>): AppendEntries {
-  return {
-    type: "AppendEntries",
-    from: "n2",
-    to: "n1",
-    term: 1,
-    prevLogIndex: 0,
-    prevLogTerm: 0,
-    entries: [],
-    leaderCommit: 0,
-    ...fields,
-  };
-}
+import type { RaftNode } from "../../src/raft/node";
+import type { LogEntry, Message, NodeId } from "../../src/raft/types";
+import { appendEntries, entry, kvOf, newNode } from "../util/helpers";
 
 function success(msgs: Message[]): boolean {
   const [reply] = msgs;
@@ -56,10 +34,6 @@ function ackFrom(from: NodeId, node: RaftNode, matchIndex: number): Message[] {
     success: true,
     matchIndex,
   });
-}
-
-function kvOf(node: RaftNode): Record<string, string> {
-  return Object.fromEntries(node.kv);
 }
 
 describe("RaftNode follower log handling", () => {

@@ -43,9 +43,9 @@ export interface AppendEntriesResponse extends BaseMessage {
   type: "AppendEntriesResponse";
   success: boolean;
   /**
-   * On success, the index of the last entry the follower now matches. Not in
-   * Figure 2, but it lets the leader handle reordered or duplicated responses
-   * without guessing which request this one answers.
+   * On success, the index of the last entry the follower now matches; 0 on
+   * failure. Not in Figure 2, but it lets the leader handle reordered or
+   * duplicated responses without guessing which request this one answers.
    */
   matchIndex: number;
 }

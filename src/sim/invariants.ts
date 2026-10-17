@@ -1,5 +1,5 @@
 import type { RaftNode } from "../raft/node";
-import type { LogEntry, NodeId } from "../raft/types";
+import type { Command, LogEntry, NodeId } from "../raft/types";
 import type { Cluster } from "./cluster";
 
 /**
@@ -11,7 +11,9 @@ export class InvariantChecker {
   private leaderOfTerm = new Map<number, NodeId>();
   /**
    * Every committed entry seen so far, with the term of the node that first
-   * reported it. That term is at or after the term the entry was committed in.
+   * reported it. That term is at or after the term the entry was committed in,
+   * so leader completeness is only checked against leaders of a strictly later
+   * term. That can miss a narrow case, but never reports a false violation.
    */
   private committed = new Map<number, { entry: LogEntry; term: number }>();
 
@@ -84,10 +86,10 @@ export class InvariantChecker {
 
 function sameEntry(a: LogEntry | undefined, b: LogEntry | undefined): boolean {
   if (!a || !b) return a === b;
-  return (
-    a.term === b.term &&
-    a.command.op === b.command.op &&
-    a.command.key === b.command.key &&
-    (a.command.op === "delete" || (b.command.op === "put" && a.command.value === b.command.value))
-  );
+  return a.term === b.term && sameCommand(a.command, b.command);
+}
+
+function sameCommand(a: Command, b: Command): boolean {
+  if (a.op === "put" && b.op === "put") return a.key === b.key && a.value === b.value;
+  return a.op === b.op && a.key === b.key;
 }

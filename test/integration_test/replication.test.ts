@@ -1,16 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RaftNode } from "../../src/raft/node";
 import { Cluster } from "../../src/sim/cluster";
-
-function kvOf(node: RaftNode): Record<string, string> {
-  return Object.fromEntries(node.kv);
-}
-
-function electedCluster(size: number, seed = 1): Cluster {
-  const cluster = new Cluster({ size, seed });
-  cluster.runUntil(() => cluster.leader() !== undefined);
-  return cluster;
-}
+import { electedCluster, kvOf } from "../util/helpers";
 
 describe("Cluster replication", () => {
   it("replicates puts and deletes to every node", () => {
@@ -35,8 +25,8 @@ describe("Cluster replication", () => {
   it("a leader cut off in a minority cannot commit, and its entry is overwritten after healing", () => {
     const cluster = electedCluster(5);
     const oldLeader = cluster.leader()!;
-    const minority = [oldLeader.id, [...cluster.nodes.keys()].find((id) => id !== oldLeader.id)!];
-    const majority = [...cluster.nodes.keys()].filter((id) => !minority.includes(id));
+    const minority = [oldLeader.id, cluster.ids.find((id) => id !== oldLeader.id)!];
+    const majority = cluster.ids.filter((id) => !minority.includes(id));
     cluster.network.partition([minority, majority]);
 
     // The old leader still thinks it leads, so it accepts the write...
@@ -61,7 +51,7 @@ describe("Cluster replication", () => {
     const cluster = electedCluster(3);
     const leader = cluster.leader()!;
     const laggard = [...cluster.nodes.values()].find((n) => n !== leader)!;
-    const rest = [...cluster.nodes.keys()].filter((id) => id !== laggard.id);
+    const rest = cluster.ids.filter((id) => id !== laggard.id);
     cluster.network.partition([[laggard.id], rest]);
 
     for (let i = 1; i <= 5; i++) cluster.submit({ op: "put", key: `k${i}`, value: `${i}` });
