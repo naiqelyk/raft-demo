@@ -1,5 +1,5 @@
-import { DEFAULT_RAFT_CONFIG, RaftNode, type RaftConfig } from "../raft/node";
-import type { Message, NodeId } from "../raft/types";
+import { DEFAULT_RAFT_CONFIG, RaftNode, type ClientResult, type RaftConfig } from "../raft/node";
+import type { Command, Message, NodeId } from "../raft/types";
 import { Network, type NetworkOptions } from "./network";
 import { Rng } from "./rng";
 
@@ -66,6 +66,15 @@ export class Cluster {
   /** The leader with the highest term, if any. */
   leader(): RaftNode | undefined {
     return this.leaders().sort((a, b) => b.currentTerm - a.currentTerm)[0];
+  }
+
+  /** Submits a command to the current leader, if there is one. */
+  submit(command: Command): ClientResult {
+    const leader = this.leader();
+    if (!leader) return { ok: false, leaderHint: null };
+    const result = leader.clientRequest(command);
+    if (result.ok) this.send(result.messages);
+    return result;
   }
 
   private send(messages: Message[]): void {
