@@ -25,6 +25,13 @@ export type ClientResult =
   | { ok: true; index: number; messages: Message[] }
   | { ok: false; leaderHint: NodeId | null };
 
+/** The state Raft keeps on disk; it survives a crash, everything else is lost. */
+export interface PersistentState {
+  currentTerm: number;
+  votedFor: NodeId | null;
+  log: LogEntry[];
+}
+
 export const DEFAULT_RAFT_CONFIG: RaftConfig = {
   electionTimeoutMin: 15,
   electionTimeoutMax: 30,
@@ -68,8 +75,19 @@ export class RaftNode {
     readonly peers: NodeId[],
     private readonly rng: Rng,
     private readonly config: RaftConfig = DEFAULT_RAFT_CONFIG,
+    persisted?: PersistentState,
   ) {
+    if (persisted) {
+      this.currentTerm = persisted.currentTerm;
+      this.votedFor = persisted.votedFor;
+      this.log = [...persisted.log];
+    }
     this.electionTimeout = this.randomElectionTimeout();
+  }
+
+  /** A copy of the state that would be on disk, for restarting this node after a crash. */
+  persistentState(): PersistentState {
+    return { currentTerm: this.currentTerm, votedFor: this.votedFor, log: [...this.log] };
   }
 
   /** Advances this node's timers by one tick. */

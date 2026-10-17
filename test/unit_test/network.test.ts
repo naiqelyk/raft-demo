@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Network } from "../src/sim/network";
-import { Rng } from "../src/sim/rng";
-import type { Message, NodeId } from "../src/raft/types";
+import { Network } from "../../src/sim/network";
+import { Rng } from "../../src/sim/rng";
+import type { Message, NodeId } from "../../src/raft/types";
 
 function heartbeat(from: NodeId, to: NodeId, term = 1): Message {
   return {

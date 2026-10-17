@@ -1,4 +1,10 @@
-import { DEFAULT_RAFT_CONFIG, RaftNode, type ClientResult, type RaftConfig } from "../raft/node";
+import {
+  DEFAULT_RAFT_CONFIG,
+  RaftNode,
+  type ClientResult,
+  type PersistentState,
+  type RaftConfig,
+} from "../raft/node";
 import type { Command, Message, NodeId } from "../raft/types";
 import { Network, type NetworkOptions } from "./network";
 import { Rng } from "./rng";
@@ -18,25 +24,47 @@ export class Cluster {
   now = 0;
   readonly network: Network;
   readonly nodes: Map<NodeId, RaftNode>;
+  private readonly ids: NodeId[];
+  private readonly rng: Rng;
+  private readonly config: RaftConfig;
+  private readonly down = new Set<NodeId>();
 
   constructor({ size = 3, seed = 1, network = {}, raft = {} }: ClusterOptions = {}) {
-    const rng = new Rng(seed);
-    const config = { ...DEFAULT_RAFT_CONFIG, ...raft };
-    const ids = Array.from({ length: size }, (_, i) => `n${i + 1}`);
+    this.rng = new Rng(seed);
+    this.config = { ...DEFAULT_RAFT_CONFIG, ...raft };
+    this.ids = Array.from({ length: size }, (_, i) => `n${i + 1}`);
 
-    this.network = new Network(rng, network);
-    this.nodes = new Map(
-      ids.map((id) => [id, new RaftNode(id, ids.filter((peer) => peer !== id), rng, config)]),
-    );
+    this.network = new Network(this.rng, network);
+    this.nodes = new Map(this.ids.map((id) => [id, this.newNode(id)]));
   }
 
   step(): void {
     this.now++;
     for (const msg of this.network.deliverDue(this.now)) {
+      // Messages that reach a crashed node are lost.
       const node = this.nodes.get(msg.to);
-      if (node) this.send(node.receive(msg));
+      if (node && this.isUp(node.id)) this.send(node.receive(msg));
     }
-    for (const node of this.nodes.values()) this.send(node.tick());
+    for (const node of this.upNodes()) this.send(node.tick());
+  }
+
+  /**
+   * Stops a node: it no longer ticks or receives. Messages it already sent are
+   * still delivered.
+   */
+  crash(id: NodeId): void {
+    this.node(id);
+    this.down.add(id);
+  }
+
+  /** Brings a node back with only its persistent state; all volatile state starts fresh. */
+  restart(id: NodeId): void {
+    this.nodes.set(id, this.newNode(id, this.node(id).persistentState()));
+    this.down.delete(id);
+  }
+
+  isUp(id: NodeId): boolean {
+    return !this.down.has(id);
   }
 
   run(ticks: number): void {
@@ -58,9 +86,14 @@ export class Cluster {
     return node;
   }
 
-  /** All nodes that currently believe they are leader (may be >1 during a partition). */
+  /** Nodes that are not crashed. */
+  upNodes(): RaftNode[] {
+    return [...this.nodes.values()].filter((node) => this.isUp(node.id));
+  }
+
+  /** All running nodes that believe they are leader (may be >1 during a partition). */
   leaders(): RaftNode[] {
-    return [...this.nodes.values()].filter((node) => node.role === "leader");
+    return this.upNodes().filter((node) => node.role === "leader");
   }
 
   /** The leader with the highest term, if any. */
@@ -75,6 +108,11 @@ export class Cluster {
     const result = leader.clientRequest(command);
     if (result.ok) this.send(result.messages);
     return result;
+  }
+
+  private newNode(id: NodeId, persisted?: PersistentState): RaftNode {
+    const peers = this.ids.filter((peer) => peer !== id);
+    return new RaftNode(id, peers, this.rng, this.config, persisted);
   }
 
   private send(messages: Message[]): void {

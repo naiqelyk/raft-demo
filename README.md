@@ -4,8 +4,8 @@ A small, readable implementation of the [Raft consensus algorithm](https://raft.
 that replicates a key-value store across a cluster of simulated nodes. It includes tests for
 the failure modes that matter and an interactive UI.
 
-> **Status:** work in progress. Leader election and log replication are done;
-> crash/restart and failure-mode scenarios are next.
+> **Status:** work in progress. Election, replication, crash/restart and the failure
+> scenarios are done; an invariant checker with randomized chaos tests is next.
 > See [Progress](#progress).
 
 ## Quick start
@@ -65,6 +65,24 @@ first. That's a deliberate trade-off for a toy.
 A new leader doesn't append an empty entry when it takes over, so an entry left over from
 an earlier term stays uncommitted until the next client write.
 
+### Crash and restart
+
+`cluster.crash(id)` stops a node: it stops ticking, and messages that reach it are lost.
+Messages it sent before crashing are still delivered, just as they would be on a real
+network. `cluster.restart(id)` builds a **new** `RaftNode` from a copy of the old one's
+persistent state, so everything else starts fresh by construction:
+
+| Survives a crash (on disk) | Lost on a crash (in memory) |
+|---|---|
+| `currentTerm`, `votedFor`, `log` | role, leader, `commitIndex`, `lastApplied`, the `kv` store, timers, `nextIndex` / `matchIndex` |
+
+A restarted node starts with an empty store and `commitIndex = 0`. It learns the commit
+index from the leader's next heartbeat and rebuilds the store by re-applying its log.
+
+Losing any persistent field would break safety. Without `votedFor`, a node could vote
+twice in one term and allow two leaders. Without `currentTerm`, it could accept an
+outdated leader. Without the `log`, a committed entry could disappear.
+
 Default timings (in ticks): message delay 1–3, heartbeat every 5, election timeout
 randomized in 15–30.
 
@@ -74,12 +92,16 @@ randomized in 15–30.
 - [x] Message types, seeded RNG, simulated network
 - [x] Leader election + cluster harness
 - [x] Log replication, commit rules, key-value state machine
-- [ ] Crash/restart with persistent state; scenario tests for failure modes
+- [x] Crash/restart with persistent state; scenario tests for failure modes
 - [ ] Invariant checker + randomized chaos tests
 - [ ] Interactive UI (Vite + React)
 - [ ] Final write-up
 
 ## What's tested so far
+
+Tests are split by level: `test/unit_test/` checks the RNG, the network and individual
+node rules by calling `receive()` directly, and `test/integration_test/` runs whole seeded
+clusters, including the failure scenarios.
 
 - **Network:** delivery within the delay range, reordering, drops, partitions and heal,
   determinism.
@@ -100,9 +122,21 @@ randomized in 15–30.
   a minority accepts a write but can never commit it, and that entry is replaced after
   the partition heals; a lagging follower catches up after rejoining; every node ends up
   with the same store despite 20% message loss and longer delays, over several seeds.
+- **Crash and restart:** a leader crash leads to a new leader, and the old one rejoins as
+  a follower and catches up; a restarted node keeps its term and log and rebuilds its
+  store; a node remembers its vote across a restart; with a majority crashed nothing
+  commits, and nothing committed is lost once a node returns.
+- **Failure scenarios:** a crashed leader's uncommitted entries are overwritten when it
+  rejoins; re-delivering every old message (votes, AppendEntries, replies) changes
+  nothing; and **Figure 8** of the paper, replayed with crashes and partitions on 5 nodes:
+  an old-term entry that reaches a majority is not committed, and is later safely
+  overwritten by a leader with a newer entry.
 
 ## Out of scope
 
 - Log compaction / snapshots
 - Dynamic membership changes (joint consensus). The cluster size is chosen up front.
 - Exactly-once client semantics (request deduplication)
+- One-way (asymmetric) partitions: if A can't reach B, B can't reach A either
+- PreVote: a node that was partitioned away rejoins with a higher term and forces the
+  leader to step down. That's safe, but disruptive.
